@@ -1,0 +1,103 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import CubicSpline
+import gradio as gr
+
+# --- Datos base ---
+T = np.array([0, 95, 170, 245, 320, 374])  # °C
+P = np.array([0.611, 84.5, 791, 4010, 22064, 101.325])  # kPa
+H_liq = np.array([0, 398, 725, 1050, 1410, 2090])  # kJ/kg
+H_vap = np.array([2500, 2706, 2810, 2865, 2800, 2090])  # kJ/kg
+
+# Ordenar por presión
+idx = np.argsort(P)
+P = P[idx]
+T = T[idx]
+H_liq = H_liq[idx]
+H_vap = H_vap[idx]
+
+# --- Splines ---
+cs_P_from_T = CubicSpline(T, P, extrapolate=False)
+cs_T_from_P = CubicSpline(P, T, extrapolate=False)
+
+# Splines para entalpías en función de T
+cs_Hl_from_T = CubicSpline(T, H_liq, extrapolate=False)
+cs_Hv_from_T = CubicSpline(T, H_vap, extrapolate=False)
+
+def calc(modo, temp, pres):
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(7,5))
+
+    if modo == "Calcular presión (dado T)":
+        if temp < T.min() or temp > T.max():
+            return "❗ Temperatura fuera de rango", fig
+
+        P_sat = float(cs_P_from_T(temp))
+        H_l = float(cs_Hl_from_T(temp))
+        H_v = float(cs_Hv_from_T(temp))
+        Q = H_v - H_l
+
+        # Curva P-T
+        ax.plot(P, T, linewidth=2, label="Presión vs Temperatura")
+        ax.scatter(P_sat, temp, s=140, label="Punto interpolado")
+
+        resultado = (
+            f"📌 Resultados para T = {temp} °C\n"
+            f"Presión de saturación = {P_sat:.2f} kPa\n"
+            f"Entalpía líquido sat. = {H_l:.2f} kJ/kg\n"
+            f"Entalpía vapor sat. = {H_v:.2f} kJ/kg\n"
+            f"Calor latente = {Q:.2f} kJ/kg"
+        )
+
+    else:  # P → T
+        if pres < P.min() or pres > P.max():
+            return "❗ Presión fuera de rango", fig
+
+        T_sat = float(cs_T_from_P(pres))
+        H_l = float(cs_Hl_from_T(T_sat))
+        H_v = float(cs_Hv_from_T(T_sat))
+        Q = H_v - H_l
+
+        ax.plot(P, T, linewidth=2, label="Presión vs Temperatura")
+        ax.scatter(pres, T_sat, s=140, label="T saturación")
+
+        resultado = (
+            f"📌 Resultados para P = {pres} kPa\n"
+            f"Temperatura de saturación = {T_sat:.2f} °C\n"
+            f"Entalpía líquido sat. = {H_l:.2f} kJ/kg\n"
+            f"Entalpía vapor sat. = {H_v:.2f} kJ/kg\n"
+            f"Calor latente = {Q:.2f} kJ/kg"
+        )
+
+    # Curvas de entalpía superpuestas para imitar tu imagen
+    ax.plot(H_vap, T, linewidth=1.6, label="Vapor saturado (h)")
+    ax.plot(H_liq, T, linewidth=1.6, label="Líquido saturado (h)")
+
+    ax.set_xlabel("Presión / Entalpía (kPa — kJ/kg)")
+    ax.set_ylabel("Temperatura (°C)")
+    ax.set_title("Propiedades de saturación del agua")
+    ax.grid(True)
+    ax.legend(loc="lower right", fontsize=9)
+
+    return resultado, fig
+
+with gr.Blocks(theme=gr.themes.Monochrome()) as app:
+    gr.Markdown("## 💧 Propiedades de saturación del agua")
+
+    modo = gr.Radio(
+        ["Calcular presión (dado T)", "Calcular temperatura (dado P)"],
+        label="Modo de cálculo",
+        value="Calcular presión (dado T)"
+    )
+
+    temp = gr.Number(label="Temperatura (°C)", value=25)
+    pres = gr.Number(label="Presión (kPa)", value=101.3)
+
+    btn = gr.Button("Calcular", variant="primary")
+
+    out_text = gr.Textbox(label="Resultado")
+    out_plot = gr.Plot()
+
+    btn.click(calc, [modo, temp, pres], [out_text, out_plot])
+
+app.launch()
